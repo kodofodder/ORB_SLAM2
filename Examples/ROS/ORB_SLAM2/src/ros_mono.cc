@@ -26,10 +26,20 @@
 
 #include<ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
-
 #include<opencv2/core/core.hpp>
-
 #include"../../../include/System.h"
+
+#include "geometry_msgs/Pose.h"
+#include "geometry_msgs/PoseStamped.h"
+#include <tf/tf.h>
+#include <tf/transform_datatypes.h>
+#include "../../../include/Converter.h"
+
+#include "geometry_msgs/TransformStamped.h"
+
+#include "tf/transform_datatypes.h"
+#include <tf/transform_broadcaster.h>
+
 
 using namespace std;
 
@@ -42,6 +52,8 @@ public:
 
     ORB_SLAM2::System* mpSLAM;
 };
+
+ros::Publisher pose_pub;
 
 int main(int argc, char **argv)
 {
@@ -59,10 +71,10 @@ int main(int argc, char **argv)
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::MONOCULAR,true);
 
     ImageGrabber igb(&SLAM);
-
     ros::NodeHandle nodeHandler;
     ros::Subscriber sub = nodeHandler.subscribe("/camera/image_raw", 1, &ImageGrabber::GrabImage,&igb);
-
+    pose_pub = nodeHandler.advertise<geometry_msgs::PoseStamped>("/orb_pose", 50);
+    
     ros::spin();
 
     // Stop all threads
@@ -90,7 +102,40 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
         return;
     }
 
-    mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+    cv::Mat pose = mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+
+    if (!pose.empty()) {
+     tf::Matrix3x3 rh_cameraPose(  - pose.at<float>(0,0),   pose.at<float>(0,1),   pose.at<float>(0,2),
+                                  - pose.at<float>(1,0),   pose.at<float>(1,1),   pose.at<float>(1,2),
+                                    pose.at<float>(2,0), - pose.at<float>(2,1), - pose.at<float>(2,2));
+
+    tf::Vector3 rh_cameraTranslation( pose.at<float>(0,3),pose.at<float>(1,3), - pose.at<float>(2,3) );
+    //tf::Vector3 rh_cameraTranslation(- pose.at<float>(2,3),pose.at<float>(0,3), pose.at<float>(1,3));
+
+    //rotate 270deg about z and 270deg about x
+    tf::Matrix3x3 rotation270degZX( 0, 0, 1,
+                                   -1, 0, 0,
+                                    0,-1, 0);
+
+    //old code from https://github.com/raulmur/ORB_SLAM2/issues/597
+    geometry_msgs::PoseStamped poseStamped;
+    poseStamped.header.stamp = ros::Time::now();
+    poseStamped.header.frame_id ="map";
+
+    tf::Transform new_transform = tf::Transform(rh_cameraPose,rh_cameraTranslation);;
+    new_transform.setOrigin(rh_cameraTranslation);
+    
+    tf::poseTFToMsg(new_transform, poseStamped.pose);
+    pose_pub.publish(poseStamped);
+    
+    //publish right handed, x forward, y right, z down (NED)
+    static tf::TransformBroadcaster br;
+    tf::Transform transformCoordSystem = tf::Transform(rotation270degZX,tf::Vector3(0.0, 0.0, 0.0));
+    br.sendTransform(tf::StampedTransform(transformCoordSystem, ros::Time::now(), "camera_link", "camera_pose"));
+
+    tf::Transform transformCamera = tf::Transform(rh_cameraPose,rh_cameraTranslation);
+    br.sendTransform(tf::StampedTransform(transformCamera, ros::Time::now(), "camera_pose", "pose"));
+    }
 }
 
 

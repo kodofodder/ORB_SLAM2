@@ -40,6 +40,7 @@ endif()
 
 find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Pangolin REQUIRED)
+find_package(Boost COMPONENTS system REQUIRED)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -63,7 +64,7 @@ src/ros_mono.cc
 )
 
 target_link_libraries(Mono
-${LIBS}
+${LIBS} ${Boost_SYSTEM_LIBRARY}
 )
 
 # Node for monocular camera (Augmented Reality Demo)
@@ -83,7 +84,7 @@ src/ros_stereo.cc
 )
 
 target_link_libraries(Stereo
-${LIBS}
+${LIBS} ${Boost_SYSTEM_LIBRARY}
 )
 
 # Node for RGB-D camera
@@ -92,6 +93,6 @@ src/ros_rgbd.cc
 )
 
 target_link_libraries(RGBD
-${LIBS}
+${LIBS} ${Boost_SYSTEM_LIBRARY}
 )
 
